@@ -102,18 +102,30 @@ class PDFService {
               font-family: Arial, sans-serif;
               line-height: 1.5;
             }
-            /* Page break utilities */
+            /* Page break controls */
             .page-break {
-              page-break-after: always;
+              page-break-before: always;
+              display: block;
+              height: 0;
+              margin-top: 80px; /* Add space for header */
+              margin-bottom: 80px; /* Add space for footer */
             }
             .avoid-break {
-              page-break-inside: avoid;
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+            }
+            /* Content wrapper */
+            .content {
+              position: relative;
+              padding-top: 20px; /* Space after header */
+              padding-bottom: 20px; /* Space before footer */
             }
             /* Table styles */
             table {
               width: 100%;
               border-collapse: collapse;
               margin: 1em 0;
+              page-break-inside: avoid;
             }
             th, td {
               border: 1px solid #ddd;
@@ -133,6 +145,7 @@ class PDFService {
               padding: 10px 40px;
               background: white;
               border-bottom: 1px solid #eee;
+              z-index: 1000;
             }
             .footer {
               position: fixed;
@@ -144,6 +157,7 @@ class PDFService {
               background: white;
               border-top: 1px solid #eee;
               text-align: center;
+              z-index: 1000;
             }
             /* Content sections */
             .section {
@@ -154,7 +168,21 @@ class PDFService {
               border-bottom: 2px solid #333;
               margin-bottom: 15px;
             }
-            /* Custom styles */
+            /* Page specific styles */
+            .page {
+              position: relative;
+              margin-top: 20px;
+              margin-bottom: 20px;
+              padding-top: 20px;
+            }
+            /* First page specific */
+            .page:first-child {
+              margin-top: 0;
+            }
+            /* Ensure proper spacing after page breaks */
+            .page-break + * {
+              margin-top: 20px;
+            }
             ${options.customStyles || ''}
           </style>
         </head>
