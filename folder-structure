@@ -1,0 +1,36 @@
+document-service/
+├── src/
+│   ├── config/
+│   │   ├── index.js
+│   │   └── logger.js
+│   ├── controllers/
+│   │   └── documentController.js
+│   ├── services/
+│   │   ├── documentService.js
+│   │   ├── pdfService.js
+│   │   ├── docxService.js
+│   │   ├── storageService.js
+│   │   └── watermarkService.js
+│   ├── middleware/
+│   │   ├── errorHandler.js
+│   │   ├── rateLimiter.js
+│   │   └── validator.js
+│   ├── utils/
+│   │   ├── constants.js
+│   │   └── helpers.js
+│   ├── routes/
+│   │   ├── index.js
+│   │   └── v1/
+│   │       └── documentRoutes.js
+│   ├── models/
+│   │   └── documentRequest.js
+│   └── server.js
+├── tests/
+│   ├── unit/
+│   │   └── services/
+│   │       └── documentService.test.js
+│   └── integration/
+│       └── document.test.js
+├── .env.example
+├── .gitignore
+└── README.md 

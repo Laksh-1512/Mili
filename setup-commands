@@ -1,0 +1,3 @@
+mkdir document-service
+cd document-service
+npm init -y 
