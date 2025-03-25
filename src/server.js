@@ -30,10 +30,13 @@ app.use('/api', routes);
 // Error handling
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 3000;
+// Instead of starting the server here, export it
+module.exports = app;
 
-app.listen(PORT, () => {
-  logger.info(`Server is running on port ${PORT}`);
-});
-
-module.exports = app; 
+// Only start the server if this file is run directly
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    logger.info(`Server is running on port ${PORT}`);
+  });
+} 

@@ -1,7 +1,7 @@
 const documentService = require('../services/documentService');
 const { logger } = require('../config/logger');
 const path = require('path');
-// const { cleanupTempFiles } = require('../utils/cleanup');  // Commented out cleanup import
+const { v4: uuidv4 } = require('uuid');
 
 const generateDocument = async (req, res, next) => {
   let generatedFilePath = null;
@@ -16,9 +16,8 @@ const generateDocument = async (req, res, next) => {
       placeholders
     } = req.body;
 
-    // Generate unique request ID for tracking
-    const requestId = `doc-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-    
+    // Generate unique request ID using UUID v4
+    const requestId = `${uuidv4()}.${documentType}`;
     logger.info(`Starting document generation for request ${requestId}`);
 
     // Process the document
@@ -47,23 +46,11 @@ const generateDocument = async (req, res, next) => {
       if (err) {
         logger.error(`Error sending file: ${err}`);
         next(err);
-      } 
-      // Cleanup commented out
-      // else {
-      //   cleanupTempFiles(absolutePath)
-      //     .catch(err => logger.error(`Error cleaning up temp file: ${err}`));
-      // }
+      }
     });
 
   } catch (error) {
     logger.error('Document generation failed:', error);
-    
-    // Cleanup commented out
-    // if (generatedFilePath) {
-    //   cleanupTempFiles(generatedFilePath)
-    //     .catch(err => logger.error(`Error cleaning up temp file: ${err}`));
-    // }
-    
     next(error);
   }
 };
