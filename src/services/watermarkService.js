@@ -14,7 +14,7 @@ class WatermarkService {
     await page.evaluate((watermarkText) => {
       const watermark = document.createElement('div');
       watermark.innerHTML = watermarkText;
-      
+
       watermark.style.cssText = `
         position: fixed;
         top: 50%;
@@ -52,100 +52,113 @@ class WatermarkService {
 
   async addWatermarkToDOCX(doc, watermark) {
     try {
-      if (watermark.type === 'text') {
-        await this.addTextWatermarkToDOCX(doc, watermark.content);
-      } else if (watermark.type === 'image') {
-        await this.addImageWatermarkToDOCX(doc, watermark.content);
-      }
+      // Get all sections from the document
+      const sections = doc.sections;
+      
+      // Add watermark to each section
+      sections.forEach(section => {
+        if (watermark.type === 'text') {
+          this.addTextWatermarkToSection(section, watermark.content);
+        } else if (watermark.type === 'image') {
+          this.addImageWatermarkToSection(section, watermark.content);
+        }
+      });
+
+      logger.info('Watermark added to all pages');
     } catch (error) {
       logger.error('Failed to add watermark to DOCX:', error);
-      // Don't throw error for watermark failures
+      throw error;
     }
   }
 
-  async addTextWatermarkToDOCX(doc, text) {
-    const watermarkSection = {
-      properties: {
-        page: {
-          size: {
-            orientation: docx.PageOrientation.PORTRAIT,
-          },
-          margin: {
-            top: 1440,
-            right: 1440,
-            bottom: 1440,
-            left: 1440,
-          },
-        },
-        type: docx.SectionType.CONTINUOUS,
-      },
+  addTextWatermarkToSection(section, text) {
+    // Create watermark paragraph
+    const watermarkParagraph = new docx.Paragraph({
       children: [
-        new docx.Paragraph({
+        new docx.TextRun({
           text: text,
-          alignment: docx.AlignmentType.CENTER,
-          style: {
-            color: "808080",
-            size: 72,
-            opacity: 0.5,
-          }
+          size: 72, // Large size for watermark
+          color: "CCCCCC", // Light gray color
+          bold: true
         })
       ],
-    };
+      alignment: docx.AlignmentType.CENTER,
+      floating: {
+        horizontalPosition: {
+          relative: docx.HorizontalPositionRelativeFrom.PAGE,
+          align: docx.HorizontalPositionAlign.CENTER
+        },
+        verticalPosition: {
+          relative: docx.VerticalPositionRelativeFrom.PAGE,
+          align: docx.VerticalPositionAlign.CENTER
+        },
+        wrap: {
+          type: docx.TextWrappingType.BEHIND
+        },
+        rotation: -45 // Rotate 45 degrees counter-clockwise
+      }
+    });
 
-    doc.addSection(watermarkSection);
-    logger.info('Text watermark added to DOCX');
+    // Add watermark to section
+    section.properties.addChildElement(
+      new docx.Paragraph({
+        children: [watermarkParagraph],
+        frame: {
+          position: {
+            x: 0,
+            y: 0
+          },
+          width: 100,
+          height: 100,
+          anchor: {
+            horizontal: docx.FrameAnchorType.PAGE,
+            vertical: docx.FrameAnchorType.PAGE
+          },
+          alignment: {
+            x: docx.HorizontalPositionAlign.CENTER,
+            y: docx.VerticalPositionAlign.CENTER
+          }
+        }
+      })
+    );
   }
 
-  async addImageWatermarkToDOCX(doc, base64Image) {
+  addImageWatermarkToSection(section, base64Image) {
     try {
-      // Convert base64 to buffer
       const imageBuffer = Buffer.from(base64Image, 'base64');
-
-      // Create drawing object for the image
-      const imageDrawing = new docx.ImageRun({
+      
+      // Create image watermark
+      const watermarkImage = new docx.ImageRun({
         data: imageBuffer,
         transformation: {
-          width: 300, // Width in points
-          height: 300, // Height in points
-          rotation: -45, // Rotate 45 degrees counter-clockwise
-          opacity: 0.3, // 30% opacity
-        },
+          width: 300,
+          height: 300,
+          rotation: -45,
+          opacity: 0.3
+        }
       });
 
-      // Create paragraph with centered image
-      const watermarkParagraph = new docx.Paragraph({
-        children: [imageDrawing],
-        alignment: docx.AlignmentType.CENTER,
-      });
-
-      // Create section properties with background image
-      const sectionProperties = {
-        properties: {
-          page: {
-            size: {
-              orientation: docx.PageOrientation.PORTRAIT,
+      // Add watermark to section
+      section.properties.addChildElement(
+        new docx.Paragraph({
+          children: [watermarkImage],
+          floating: {
+            horizontalPosition: {
+              relative: docx.HorizontalPositionRelativeFrom.PAGE,
+              align: docx.HorizontalPositionAlign.CENTER
             },
-            margin: {
-              top: 1440,
-              right: 1440,
-              bottom: 1440,
-              left: 1440,
+            verticalPosition: {
+              relative: docx.VerticalPositionRelativeFrom.PAGE,
+              align: docx.VerticalPositionAlign.CENTER
             },
-          },
-          type: docx.SectionType.CONTINUOUS,
-          background: {
-            color: "FFFFFF", // White background
-          },
-        },
-        children: [watermarkParagraph],
-      };
-
-      // Add the section to the document
-      doc.addSection(sectionProperties);
-
-      logger.info('Image watermark added to DOCX');
+            wrap: {
+              type: docx.TextWrappingType.BEHIND
+            }
+          }
+        })
+      );
     } catch (error) {
-      logger.error('Failed to add image watermark to DOCX:', error);
+      logger.error('Failed to add image watermark:', error);
       throw error;
     }
   }

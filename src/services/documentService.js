@@ -16,68 +16,49 @@ class DocumentService {
     this.maxFileSizeMB = process.env.MAX_FILE_SIZE_MB || 10;
   }
 
-  async generateDocument({
-    requestId,
-    header,
-    content,
-    footer,
-    documentType,
-    watermark,
-    placeholders
-  }) {
+  async generateDocument({ requestId, header, content, footer, documentType, watermark, placeholders }) {
     try {
-      logger.info(`Starting document generation for request ${requestId}`);
+      // Validate HTML content
+      const validatedHeader = HTMLValidator.validateAndSanitize(header, 'header');
+      const validatedContent = HTMLValidator.validateAndSanitize(content, 'content');
+      const validatedFooter = HTMLValidator.validateAndSanitize(footer, 'footer');
 
-      // Validate and sanitize HTML
-      const sanitizedContent = {
-        header: await HTMLValidator.validateAndSanitize(header, 'header'),
-        content: await HTMLValidator.validateAndSanitize(content, 'content'),
-        footer: await HTMLValidator.validateAndSanitize(footer, 'footer')
-      };
+      // Replace placeholders if provided
+      const processedContent = placeholders ? 
+        this.replacePlaceholders({ header: validatedHeader, content: validatedContent, footer: validatedFooter }, placeholders) :
+        { header: validatedHeader, content: validatedContent, footer: validatedFooter };
 
-      // Replace placeholders
-      const processedContent = this.replacePlaceholders({
-        ...sanitizedContent,
-        placeholders
-      });
-
-      let generatedFile;
-      try {
-        if (documentType === 'pdf') {
-          logger.info(`Generating PDF for request ${requestId}`);
-          generatedFile = await pdfService.generatePDF({
-            ...processedContent,
-            watermark,
-            requestId
-          });
-        } else {
-          logger.info(`Generating DOCX for request ${requestId}`);
-          generatedFile = await docxService.generateDOCX({
-            ...processedContent,
-            watermark,
-            requestId
-          });
-        }
-      } catch (error) {
-        logger.error(`Document rendering failed for ${requestId}:`, error);
-        throw new RenderingError(`Failed to generate ${documentType.toUpperCase()}`, {
-          documentType,
-          error: error.message,
-          details: error.stack
+      // Generate document based on type
+      let result;
+      if (documentType === 'pdf') {
+        result = await pdfService.generatePDF({
+          ...processedContent,
+          watermark,
+          requestId
+        });
+      } else {
+        result = await docxService.generateDOCX({
+          ...processedContent,
+          watermark,
+          requestId
         });
       }
 
-      // Check file size and compress if needed
-      await this.handleFileSize(generatedFile);
-
+      // Add type and mime type to result
       return {
-        path: generatedFile.path,
-        filename: `${requestId}.${documentType}`,
-        mimeType: documentType === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        ...result,
+        type: documentType,
+        mimeType: documentType === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        filename: `${requestId}.${documentType}`
       };
+
     } catch (error) {
-      logger.error(`Document generation failed for ${requestId}:`, error);
-      throw error;
+      logger.error(`Document rendering failed for ${requestId}:`, error);
+      throw new RenderingError(`Failed to generate ${documentType.toUpperCase()}`, {
+        documentType,
+        error: error.message,
+        details: error.stack
+      });
     }
   }
 
@@ -96,24 +77,18 @@ class DocumentService {
     }
   }
 
-  replacePlaceholders({ header, content, footer, placeholders }) {
-    if (!placeholders) {
-      return { header, content, footer };
-    }
-
+  replacePlaceholders(content, placeholders) {
     const replace = (text) => {
-      let processed = text;
-      Object.entries(placeholders).forEach(([key, value]) => {
+      return Object.entries(placeholders).reduce((acc, [key, value]) => {
         const regex = new RegExp(`{{${key}}}`, 'g');
-        processed = processed.replace(regex, value);
-      });
-      return processed;
+        return acc.replace(regex, value);
+      }, text);
     };
 
     return {
-      header: replace(header),
-      content: replace(content),
-      footer: replace(footer)
+      header: replace(content.header),
+      content: replace(content.content),
+      footer: replace(content.footer)
     };
   }
 }
