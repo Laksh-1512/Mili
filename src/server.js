@@ -14,6 +14,7 @@ const app = express();
 // Ensure temp directory exists
 const tempDir = path.resolve(process.env.TEMP_FILES_PATH || './temp');
 fs.mkdir(tempDir, { recursive: true })
+  .then(() => logger.info(`Temp directory created/verified at: ${tempDir}`))
   .catch(err => logger.error('Failed to create temp directory:', err));
 
 // Middleware

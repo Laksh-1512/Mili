@@ -1,7 +1,7 @@
 const documentService = require('../services/documentService');
 const { logger } = require('../config/logger');
 const path = require('path');
-const { cleanupTempFiles } = require('../utils/cleanup');
+// const { cleanupTempFiles } = require('../utils/cleanup');  // Commented out cleanup import
 
 const generateDocument = async (req, res, next) => {
   let generatedFilePath = null;
@@ -39,30 +39,31 @@ const generateDocument = async (req, res, next) => {
     res.setHeader('Content-Type', result.mimeType);
     res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
 
-    // Send the file
-    res.sendFile(result.path, {
-      root: path.resolve(process.env.TEMP_FILES_PATH || './temp')
-    }, (err) => {
+    // Send the file using absolute path
+    const absolutePath = path.resolve(result.path);
+    logger.debug(`Sending file from path: ${absolutePath}`);
+
+    res.sendFile(absolutePath, (err) => {
       if (err) {
         logger.error(`Error sending file: ${err}`);
         next(err);
-      } else {
-        // Clean up temp file after successful send
-        cleanupTempFiles(result.path)
-          .catch(err => logger.error(`Error cleaning up temp file: ${err}`));
-      }
+      } 
+      // Cleanup commented out
+      // else {
+      //   cleanupTempFiles(absolutePath)
+      //     .catch(err => logger.error(`Error cleaning up temp file: ${err}`));
+      // }
     });
 
   } catch (error) {
     logger.error('Document generation failed:', error);
     
-    // Clean up temp file if exists
-    if (generatedFilePath) {
-      cleanupTempFiles(generatedFilePath)
-        .catch(err => logger.error(`Error cleaning up temp file: ${err}`));
-    }
+    // Cleanup commented out
+    // if (generatedFilePath) {
+    //   cleanupTempFiles(generatedFilePath)
+    //     .catch(err => logger.error(`Error cleaning up temp file: ${err}`));
+    // }
     
-    // Pass to error handler middleware
     next(error);
   }
 };
