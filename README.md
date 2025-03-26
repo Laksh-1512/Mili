@@ -129,6 +129,7 @@ Response
 {
 "status": "ok"
 }`
+```
 
 ### Generate Document
 
@@ -152,6 +153,7 @@ Body:
 "content": "Your custom content here"
 }
 }`
+```
 
 Response:
 
@@ -168,7 +170,7 @@ Content-Disposition: attachment; filename="document.pdf"
     "field": "error description"
   }
 }
-
+```
 
 This API documentation:
 1. Covers all endpoints
