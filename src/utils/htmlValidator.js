@@ -2,7 +2,20 @@ const { JSDOM } = require('jsdom');
 const { ValidationError } = require('./errors');
 const { logger } = require('../config/logger');
 
+/**
+ * HTML Validator and Sanitizer
+ * Validates and sanitizes HTML content to prevent XSS and ensure safe rendering
+ * @class HTMLValidator
+ */
 class HTMLValidator {
+  /**
+   * Validates and sanitizes HTML content
+   * @static
+   * @param {string} html - HTML content to validate
+   * @param {string} [context='content'] - Context of the HTML (header/content/footer)
+   * @returns {string} Sanitized HTML
+   * @throws {ValidationError} When HTML contains dangerous elements
+   */
   static validateAndSanitize(html, context = 'content') {
     try {
       const dom = new JSDOM(html);

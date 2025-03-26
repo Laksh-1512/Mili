@@ -1,16 +1,44 @@
+/**
+ * DOCX Generation Service
+ * @module DOCXService
+ * @description Handles DOCX document generation with support for headers, footers, and watermarks
+ */
+
 const docx = require('docx');
 const path = require('path');
 const fs = require('fs').promises;
 const { logger } = require('../config/logger');
 const watermarkService = require('./watermarkService');
 
+/**
+ * DOCX Service Class
+ * @class DOCXService
+ * @description Manages DOCX document generation and formatting
+ */
 class DOCXService {
+  /**
+   * Creates an instance of DOCXService
+   * @constructor
+   * @throws {Error} If temp directory creation fails
+   */
   constructor() {
     this.tempDir = path.resolve(process.env.TEMP_FILES_PATH || './temp');
     fs.mkdir(this.tempDir, { recursive: true })
       .catch(err => logger.error('Failed to create temp directory:', err));
   }
 
+  /**
+   * Generates a DOCX document with the provided content
+   * @async
+   * @param {Object} params - Parameters for DOCX generation
+   * @param {string} params.header - HTML content for header
+   * @param {string} params.content - Main HTML content
+   * @param {string} params.footer - HTML content for footer
+   * @param {Object} [params.watermark] - Optional watermark configuration
+   * @param {string} params.requestId - Unique request identifier
+   * @returns {Promise<Object>} Generated DOCX file information
+   * @throws {Error} If DOCX generation fails
+   */
   async generateDOCX({ header, content, footer, watermark, requestId }) {
     try {
       logger.info(`Starting DOCX generation for request ${requestId}`);
@@ -80,6 +108,12 @@ class DOCXService {
     }
   }
 
+  /**
+   * Splits content into multiple pages
+   * @private
+   * @param {string} content - HTML content to split
+   * @returns {Array<string>} Array of page contents
+   */
   splitContentIntoPages(content) {
     // Split content at page-break divs
     return content
@@ -88,6 +122,12 @@ class DOCXService {
       .filter(page => page.length > 0);
   }
 
+  /**
+   * Converts HTML content to DOCX elements
+   * @private
+   * @param {string} html - HTML content to convert
+   * @returns {Array<docx.Paragraph|docx.Table>} Array of DOCX elements
+   */
   convertPageContent(html) {
     const elements = [];
     
@@ -111,6 +151,12 @@ class DOCXService {
     return elements;
   }
 
+  /**
+   * Converts HTML table to DOCX table
+   * @private
+   * @param {string} html - HTML table content
+   * @returns {docx.Table} DOCX table object
+   */
   convertTable(html) {
     try {
       const rows = html.match(/<tr[^>]*>(.*?)<\/tr>/gs) || [];
@@ -133,6 +179,12 @@ class DOCXService {
     }
   }
 
+  /**
+   * Converts HTML list to DOCX paragraphs
+   * @private
+   * @param {string} html - HTML list content
+   * @returns {Array<docx.Paragraph>} Array of DOCX paragraphs
+   */
   convertList(html) {
     try {
       const items = html.match(/<li[^>]*>(.*?)<\/li>/gs) || [];

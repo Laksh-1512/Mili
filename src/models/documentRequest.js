@@ -3,7 +3,7 @@ const Joi = require('joi');
 const documentRequestSchema = Joi.object({
   header: Joi.string().required(),
   content: Joi.string().required(),
-  footer: Joi.string().required(),
+  footer: Joi.string().required().optional(),
   documentType: Joi.string().valid('pdf', 'docx').required(),
   watermark: Joi.object({
     type: Joi.string().valid('text', 'image').required(),

@@ -1,10 +1,26 @@
+/**
+ * PDF Generation Service
+ * @module PDFService
+ * @description Handles PDF document generation with support for headers, footers, and watermarks
+ */
+
 const puppeteer = require('puppeteer');
 const path = require('path');
 const fs = require('fs').promises;
 const { logger } = require('../config/logger');
 const watermarkService = require('./watermarkService');
 
+/**
+ * PDF Service Class
+ * @class PDFService
+ * @description Manages PDF document generation and formatting
+ */
 class PDFService {
+  /**
+   * Creates an instance of PDFService
+   * @constructor
+   * @throws {Error} If temp directory creation fails
+   */
   constructor() {
     // Ensure temp directory exists
     this.tempDir = path.resolve(process.env.TEMP_FILES_PATH || './temp');
@@ -12,6 +28,19 @@ class PDFService {
       .catch(err => logger.error('Failed to create temp directory:', err));
   }
 
+  /**
+   * Generates a PDF document with the provided content
+   * @async
+   * @param {Object} params - Parameters for PDF generation
+   * @param {string} params.header - HTML content for header
+   * @param {string} params.content - Main HTML content
+   * @param {string} params.footer - HTML content for footer
+   * @param {Object} [params.watermark] - Optional watermark configuration
+   * @param {string} params.requestId - Unique request identifier
+   * @param {Object} [params.options={}] - Additional PDF options
+   * @returns {Promise<Object>} Generated PDF file information
+   * @throws {Error} If PDF generation fails
+   */
   async generatePDF({ header, content, footer, watermark, requestId, options = {} }) {
     let browser = null;
     try {
@@ -86,6 +115,16 @@ class PDFService {
     }
   }
 
+  /**
+   * Generates HTML template for PDF content
+   * @private
+   * @param {Object} params - HTML generation parameters
+   * @param {string} params.header - Header HTML
+   * @param {string} params.content - Main content HTML
+   * @param {string} params.footer - Footer HTML
+   * @param {Object} params.options - Additional styling options
+   * @returns {string} Complete HTML template
+   */
   generateHTML({ header, content, footer, options }) {
     return `
       <!DOCTYPE html>
@@ -193,19 +232,31 @@ class PDFService {
     `;
   }
 
+  /**
+   * Generates header template for PDF
+   * @private
+   * @param {string} header - Header HTML content
+   * @returns {string} Formatted header template
+   */
   getHeaderTemplate(header) {
     return `
-      <div style="font-size: 10px; padding: 10px 40px; border-bottom: 1px solid #ddd;">
+      <div style="font-size: 10px; padding: 10px 40px; border-bottom: 1px solid #ddd; text-align: center;">
         ${header}
-        <span style="float: right;">Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
       </div>
     `;
   }
 
+  /**
+   * Generates footer template for PDF
+   * @private
+   * @param {string} footer - Footer HTML content
+   * @returns {string} Formatted footer template
+   */
   getFooterTemplate(footer) {
     return `
       <div style="font-size: 10px; padding: 10px 40px; border-top: 1px solid #ddd; text-align: center;">
         ${footer}
+        <span style="float: right;">Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
       </div>
     `;
   }

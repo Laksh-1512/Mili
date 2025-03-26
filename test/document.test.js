@@ -1,35 +1,42 @@
+/**
+ * Document Generation Service Test Suite
+ * @module DocumentServiceTests
+ * @description Integration and unit tests for document generation service
+ */
+
 const request = require('supertest');
 const app = require('../src/server');
 const documentService = require('../src/services/documentService');
 
-let server;
-
-// Before all tests, start the server
-beforeAll((done) => {
-  const PORT = process.env.TEST_PORT || 3001; // Use different port for tests
-  server = app.listen(PORT, () => {
-    console.log(`Test server running on port ${PORT}`);
-    done();
-  });
-});
-
-// After all tests, close the server
-afterAll((done) => {
-  if (server) {
-    server.close(done);
-  } else {
-    done();
-  }
-});
+/**
+ * @constant {Object} sampleRequest - Test data for document generation
+ */
+const sampleRequest = {
+  header: '<div>Test Header</div>',
+  content: '<div>Test Content</div>',
+  footer: '<div>Test Footer</div>',
+  documentType: 'pdf'
+};
 
 describe('Document Generation Service Tests', () => {
-  // Test data that we'll reuse
-  const sampleRequest = {
-    header: '<div>Test Header</div>',
-    content: '<div>Test Content</div>',
-    footer: '<div>Test Footer</div>',
-    documentType: 'pdf'
-  };
+  let server;
+
+  /**
+   * Setup test server before running tests
+   * @function beforeAll
+   */
+  beforeAll((done) => {
+    const PORT = process.env.TEST_PORT || 3001;
+    server = app.listen(PORT, () => done());
+  });
+
+  /**
+   * Cleanup after tests complete
+   * @function afterAll
+   */
+  afterAll((done) => {
+    if (server) server.close(done);
+  });
 
   /**
    * API Integration Tests
