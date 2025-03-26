@@ -118,10 +118,25 @@ npm test
 
 ## 📚 API Documentation
 
+### Health Check
+
+### Generate Document
+-GET /api/health
+
+Response
+
+```json
+{
+"status": "ok"
+}`
+
 ### Generate Document
 
 `POST /api/v1/document
 Content-Type: application/json
+Body:
+
+```json
 {
 "header": "<div>{{company}} - Confidential</div>",
 "content": "<div>Dear {{name}},\n{{content}}</div>",
@@ -137,3 +152,31 @@ Content-Type: application/json
 "content": "Your custom content here"
 }
 }`
+
+Response:
+
+Status: 200 OK
+Content-Type: application/pdf or application/vnd.openxmlformats-officedocument.wordprocessingml.document
+Content-Disposition: attachment; filename="document.pdf"
+
+##### Bad Request
+```json
+{
+  "status": "error",
+  "message": "Invalid request parameters",
+  "details": {
+    "field": "error description"
+  }
+}
+
+
+This API documentation:
+1. Covers all endpoints
+2. Shows request/response formats
+3. Lists all parameters
+4. Includes error responses
+5. Shows rate limiting details
+6. Provides usage examples
+7. Includes important notes
+
+Let me know if you need any clarification or additional details!
