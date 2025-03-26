@@ -1,0 +1,42 @@
+document-service/
+├── src/
+│   ├── config/
+│   │   ├── index.js          # Configuration exports
+│   │   └── logger.js         # Winston logger setup
+│   ├── controllers/
+│   │   └── documentController.js  # Request handlers
+│   ├── services/
+│   │   ├── documentService.js     # Main document service
+│   │   ├── pdfService.js         # PDF generation
+│   │   ├── docxService.js        # DOCX generation
+│   │   ├── storageService.js     # S3 storage handling
+│   │   └── watermarkService.js   # Watermark processing
+│   ├── middleware/
+│   │   ├── errorHandler.js       # Global error handling
+│   │   ├── rateLimiter.js       # Request rate limiting
+│   │   └── validator.js         # Request validation
+│   ├── utils/
+│   │   ├── constants.js         # Application constants
+│   │   ├── errors.js           # Custom error classes
+│   │   ├── helpers.js          # Utility functions
+│   │   └── htmlValidator.js    # HTML sanitization
+│   ├── routes/
+│   │   ├── index.js            # Route aggregator
+│   │   └── v1/
+│   │       └── documentRoutes.js  # API routes
+│   ├── models/
+│   │   └── documentRequest.js     # Request validation schemas
+│   └── server.js                  # Application entry point
+├── tests/
+│   ├── document.test.js
+│           # Test environment setup
+├── logs/                          # Application logs
+│   ├── error.log
+│   ├── combined.log
+│   
+├── temp/                          # Temporary file storage
+├── .env.example                   # Environment template
+├── .env.test                      # Test environment config
+├── .gitignore            # Jest configuration
+├── package.json
+└── README.md 
