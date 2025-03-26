@@ -1,9 +1,29 @@
 # Dependencies
 node_modules/
 
-# Logs
-logs/
-*.log
+# Environment
+.env
+.env.local
+.env.*.local
 
-# Temporary files
-temp/ 
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Runtime data
+temp/
+dist/
+
+# Test coverage
+coverage/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db 
