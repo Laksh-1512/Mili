@@ -63,7 +63,6 @@ class DocumentService {
       } else {
         result = await docxService.generateDOCX({
           ...processedContent,
-          watermark,
           requestId
         });
       }

@@ -34,12 +34,11 @@ class DOCXService {
    * @param {string} params.header - HTML content for header
    * @param {string} params.content - Main HTML content
    * @param {string} params.footer - HTML content for footer
-   * @param {Object} [params.watermark] - Optional watermark configuration
    * @param {string} params.requestId - Unique request identifier
    * @returns {Promise<Object>} Generated DOCX file information
    * @throws {Error} If DOCX generation fails
    */
-  async generateDOCX({ header, content, footer, watermark, requestId }) {
+  async generateDOCX({ header, content, footer, requestId }) {
     try {
       logger.info(`Starting DOCX generation for request ${requestId}`);
       
@@ -86,11 +85,6 @@ class DOCXService {
       const doc = new docx.Document({
         sections: sections
       });
-
-      // Add watermark if provided
-      if (watermark) {
-        await watermarkService.addWatermarkToDOCX(doc, watermark);
-      }
 
       const outputPath = path.join(this.tempDir, `${requestId}.docx`);
       const buffer = await docx.Packer.toBuffer(doc);

@@ -256,7 +256,6 @@ class PDFService {
     return `
       <div style="font-size: 10px; padding: 10px 40px; border-top: 1px solid #ddd; text-align: center;">
         ${footer}
-        <span style="float: right;">Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
       </div>
     `;
   }
