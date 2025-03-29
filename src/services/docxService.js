@@ -7,6 +7,7 @@
 const docx = require('docx');
 const path = require('path');
 const fs = require('fs').promises;
+const axios = require('axios');
 const { logger } = require('../config/logger');
 const watermarkService = require('./watermarkService');
 
@@ -35,18 +36,19 @@ class DOCXService {
    * @param {string} params.content - Main HTML content
    * @param {string} params.footer - HTML content for footer
    * @param {string} params.requestId - Unique request identifier
+   * @param {Object} [params.watermark] - Optional watermark configuration
+   * @param {string} params.watermark.type - Type of watermark ('text' or 'image')
+   * @param {string} params.watermark.content - Watermark content (text or base64 image)
    * @returns {Promise<Object>} Generated DOCX file information
    * @throws {Error} If DOCX generation fails
    */
-  async generateDOCX({ header, content, footer, requestId }) {
+  async generateDOCX({ header, content, footer, requestId, watermark }) {
     try {
       logger.info(`Starting DOCX generation for request ${requestId}`);
       
-      // Split content into pages
       const pages = this.splitContentIntoPages(content);
       
-      // Create sections for each page
-      const sections = pages.map((pageContent, index) => ({
+      const sections = await Promise.all(pages.map(async (pageContent, index) => ({
         properties: {
           page: {
             margin: {
@@ -60,31 +62,29 @@ class DOCXService {
         },
         headers: {
           default: new docx.Header({
-            children: [this.convertParagraph(header)]
+            children: await this.convertContent(header, true)
           })
         },
         footers: {
           default: new docx.Footer({
-            children: [
-              new docx.Paragraph({
-                children: [
-                  new docx.TextRun({
-                    text: this.cleanHtml(footer)
-                      .replace('{{page}}', (index + 1).toString())
-                      .replace('{{total}}', pages.length.toString())
-                  })
-                ],
-                alignment: docx.AlignmentType.CENTER
-              })
-            ]
+            children: await this.convertContent(
+              footer.replace('{{page}}', (index + 1).toString())
+                   .replace('{{total}}', pages.length.toString()),
+              true
+            )
           })
         },
-        children: this.convertPageContent(pageContent)
-      }));
+        children: await this.convertContent(pageContent)
+      })));
 
       const doc = new docx.Document({
         sections: sections
       });
+
+      // Apply watermark if provided
+      if (watermark) {
+        await watermarkService.addWatermarkToDOCX(doc, watermark);
+      }
 
       const outputPath = path.join(this.tempDir, `${requestId}.docx`);
       const buffer = await docx.Packer.toBuffer(doc);
@@ -92,9 +92,7 @@ class DOCXService {
 
       logger.info(`DOCX file generated successfully at ${outputPath}`);
 
-      return {
-        path: outputPath
-      };
+      return { path: outputPath };
 
     } catch (error) {
       logger.error(`DOCX generation failed for request ${requestId}:`, error);
@@ -117,32 +115,140 @@ class DOCXService {
   }
 
   /**
-   * Converts HTML content to DOCX elements
+   * Converts HTML content to DOCX elements, including images
    * @private
    * @param {string} html - HTML content to convert
-   * @returns {Array<docx.Paragraph|docx.Table>} Array of DOCX elements
+   * @param {boolean} [isHeaderFooter=false] - Whether this content is for header/footer
+   * @returns {Promise<Array<docx.Paragraph|docx.Table|docx.ImageRun>>}
    */
-  convertPageContent(html) {
-    const elements = [];
+  async convertContent(html, isHeaderFooter = false) {
+    if (!html) return [];
     
-    // Split content into blocks (paragraphs, tables, lists)
-    const blocks = html.split(/(?=<(?:p|table|ul|ol|h[1-6])[^>]*>)/);
+    const elements = [];
+    const blocks = html.split(/(?=<(?:p|table|ul|ol|h[1-6]|img)[^>]*>)/);
     
     for (const block of blocks) {
-      if (block.trim().length === 0) continue;
+      if (!block.trim()) continue;
 
-      if (block.startsWith('<table')) {
-        elements.push(this.convertTable(block));
-      } else if (block.startsWith('<ul') || block.startsWith('<ol')) {
-        elements.push(...this.convertList(block));
-      } else if (block.startsWith('<h')) {
-        elements.push(this.convertHeading(block));
-      } else {
-        elements.push(this.convertParagraph(block));
+      try {
+        if (block.startsWith('<img')) {
+          const imgElement = await this.convertImage(block, isHeaderFooter);
+          if (imgElement) elements.push(imgElement);
+        } else if (block.startsWith('<table')) {
+          elements.push(await this.convertTable(block));
+        } else if (block.includes('<img')) {
+          // Handle inline images within text
+          elements.push(await this.convertMixedContent(block, isHeaderFooter));
+        } else {
+          elements.push(this.convertParagraph(block, isHeaderFooter));
+        }
+      } catch (error) {
+        logger.error(`Error converting block: ${block}`, error);
+        // Fallback to text conversion if image processing fails
+        elements.push(this.convertParagraph(block, isHeaderFooter));
+      }
+    }
+    
+    return elements;
+  }
+
+  /**
+   * Converts an image tag to DOCX image
+   * @private
+   * @param {string} html - HTML image tag
+   * @param {boolean} isHeaderFooter - Whether this image is for header/footer
+   */
+  async convertImage(html, isHeaderFooter = false) {
+    const srcMatch = html.match(/src=["'](.*?)["']/);
+    if (!srcMatch) return null;
+
+    const src = srcMatch[1];
+    const imageBuffer = await this.getImageBuffer(src);
+
+    // Get dimensions from HTML or use defaults
+    const widthMatch = html.match(/width=["'](\d+)["']/);
+    const heightMatch = html.match(/height=["'](\d+)["']/);
+
+    // Use wider dimensions for footer images
+    const defaultWidth = isHeaderFooter ? 550 : 400;  // Increased from 100 to 550
+    const defaultHeight = isHeaderFooter ? 80 : 300;  // Adjusted height for proportion
+
+    return new docx.Paragraph({
+      children: [
+        new docx.ImageRun({
+          data: imageBuffer,
+          transformation: {
+            width: widthMatch ? parseInt(widthMatch[1]) : defaultWidth,
+            height: heightMatch ? parseInt(heightMatch[1]) : defaultHeight
+          }
+        })
+      ],
+      alignment: docx.AlignmentType.CENTER
+    });
+  }
+
+  /**
+   * Converts mixed content (text with inline images) to DOCX elements
+   * @private
+   */
+  async convertMixedContent(html, isHeaderFooter = false) {
+    const children = [];
+    const parts = html.split(/(<img[^>]*>)/);
+
+    for (const part of parts) {
+      if (part.startsWith('<img')) {
+        try {
+          const srcMatch = part.match(/src=["'](.*?)["']/);
+          if (srcMatch) {
+            const imageBuffer = await this.getImageBuffer(srcMatch[1]);
+            children.push(
+              new docx.ImageRun({
+                data: imageBuffer,
+                transformation: {
+                  width: isHeaderFooter ? 550 : 400,  // Increased from 400 to 550
+                  height: isHeaderFooter ? 80 : 300   // Adjusted height for proportion
+                }
+              })
+            );
+          }
+        } catch (error) {
+          logger.error('Error processing inline image:', error);
+        }
+      } else if (part.trim()) {
+        children.push(
+          new docx.TextRun({
+            text: this.cleanHtml(part),
+            size: isHeaderFooter ? 20 : 24
+          })
+        );
       }
     }
 
-    return elements;
+    return new docx.Paragraph({
+      children,
+      alignment: isHeaderFooter ? docx.AlignmentType.CENTER : docx.AlignmentType.LEFT
+    });
+  }
+
+  /**
+   * Gets image buffer from URL or base64
+   * @private
+   */
+  async getImageBuffer(src) {
+    try {
+      if (src.startsWith('data:image')) {
+        const base64Data = src.split(',')[1];
+        return Buffer.from(base64Data, 'base64');
+      } else {
+        const response = await axios.get(src, {
+          responseType: 'arraybuffer'
+        });
+        return Buffer.from(response.data);
+      }
+    } catch (error) {
+      logger.error('Error downloading image:', error);
+      throw error;
+    }
   }
 
   /**
@@ -217,17 +323,19 @@ class DOCXService {
     });
   }
 
-  convertParagraph(html) {
+  convertParagraph(html, isHeaderFooter = false) {
     return new docx.Paragraph({
       children: [
         new docx.TextRun({
-          text: this.cleanHtml(html)
+          text: this.cleanHtml(html),
+          size: isHeaderFooter ? 20 : 24
         })
       ],
       spacing: {
         before: 120,
         after: 120
-      }
+      },
+      alignment: isHeaderFooter ? docx.AlignmentType.CENTER : docx.AlignmentType.LEFT
     });
   }
 
