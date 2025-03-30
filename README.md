@@ -1,4 +1,4 @@
-# Document Generation Service For Wealth Advisors 🚀
+# Document Generation Service For Wealth Advisors 
 
 A powerful, production-ready microservice that transforms HTML content into professional PDF and DOCX documents. Built for scale, security, and reliability.
 

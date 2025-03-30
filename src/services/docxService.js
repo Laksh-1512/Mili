@@ -47,51 +47,89 @@ class DOCXService {
       logger.info(`Starting DOCX generation for request ${requestId}`);
       
       const pages = this.splitContentIntoPages(content);
-      
-      const sections = await Promise.all(pages.map(async (pageContent, index) => ({
-        properties: {
-          page: {
-            margin: {
-              top: 1440,
-              bottom: 1440,
-              left: 1440,
-              right: 1440
-            }
+      logger.info(`Creating document with ${pages.length} pages`);
+
+      // Create sections array
+      const sections = [];
+
+      // Create sections one by one
+      for (let i = 0; i < pages.length; i++) {
+        const pageContent = pages[i];
+        
+        // Create section content first
+        const children = await this.convertContent(pageContent);
+
+        // Create section
+        const section = {
+          properties: {
+            page: {
+              margin: {
+                top: 1440,
+                bottom: 1440,
+                left: 1440,
+                right: 1440
+              }
+            },
+            type: i > 0 ? docx.SectionType.NEXT_PAGE : docx.SectionType.CONTINUOUS
           },
-          type: index > 0 ? docx.SectionType.NEXT_PAGE : docx.SectionType.CONTINUOUS
-        },
-        headers: {
-          default: new docx.Header({
-            children: await this.convertContent(header, true)
-          })
-        },
-        footers: {
-          default: new docx.Footer({
-            children: await this.convertContent(
-              footer.replace('{{page}}', (index + 1).toString())
-                   .replace('{{total}}', pages.length.toString()),
-              true
-            )
-          })
-        },
-        children: await this.convertContent(pageContent)
-      })));
+          children: children
+        };
 
-      const doc = new docx.Document({
-        sections: sections
-      });
+        // Add headers if present
+        if (header) {
+          section.headers = {
+            default: new docx.Header({
+              children: await this.convertContent(header, true)
+            })
+          };
+        }
 
-      // Apply watermark if provided
-      if (watermark) {
-        await watermarkService.addWatermarkToDOCX(doc, watermark);
+        // Add footers if present
+        if (footer) {
+          section.footers = {
+            default: new docx.Footer({
+              children: await this.convertContent(
+                footer.replace('{{page}}', (i + 1).toString())
+                     .replace('{{total}}', pages.length.toString()),
+                true
+              )
+            })
+          };
+        }
+
+        sections.push(section);
+        logger.info(`Created section ${i + 1} of ${pages.length}`);
       }
 
+      logger.info(`Created ${sections.length} sections, creating document...`);
+
+      // Create document with sections
+      const doc = {
+        sections: sections,
+        background: {
+          color: "FFFFFF"
+        }
+      };
+
+      // Add watermark if provided
+      if (watermark?.type === 'text' && watermark?.content) {
+        logger.info(`Adding watermark to document with ${sections.length} sections`);
+        try {
+          await watermarkService.addWatermarkToDOCX(doc, watermark);
+          logger.info('Watermark added successfully');
+        } catch (watermarkError) {
+          logger.error('Failed to add watermark:', watermarkError);
+        }
+      }
+
+      // Create final document after watermark
+      const finalDoc = new docx.Document(doc);
+
       const outputPath = path.join(this.tempDir, `${requestId}.docx`);
-      const buffer = await docx.Packer.toBuffer(doc);
+      const buffer = await docx.Packer.toBuffer(finalDoc);
       await fs.writeFile(outputPath, buffer);
 
       logger.info(`DOCX file generated successfully at ${outputPath}`);
-
       return { path: outputPath };
 
     } catch (error) {
