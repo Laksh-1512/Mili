@@ -5,6 +5,7 @@
  */
 
 const docx = require('docx');
+const HTMLToDocx = require('html-to-docx');
 const path = require('path');
 const fs = require('fs').promises;
 const axios = require('axios');
@@ -52,12 +53,12 @@ class DOCXService {
       // Create sections array
       const sections = [];
 
-      // Create sections one by one
+      // Process each page
       for (let i = 0; i < pages.length; i++) {
         const pageContent = pages[i];
         
-        // Create section content first
-        const children = await this.convertContent(pageContent);
+        // Convert HTML content to DOCX elements
+        const children = await this.convertHTMLToDocxElements(pageContent);
 
         // Create section
         const section = {
@@ -77,31 +78,30 @@ class DOCXService {
 
         // Add headers if present
         if (header) {
+          const headerElements = await this.convertHTMLToDocxElements(header);
           section.headers = {
             default: new docx.Header({
-              children: await this.convertContent(header, true)
+              children: headerElements
             })
           };
         }
 
         // Add footers if present
         if (footer) {
+          const processedFooter = footer
+            .replace('{{page}}', (i + 1).toString())
+            .replace('{{total}}', pages.length.toString());
+          
+          const footerElements = await this.convertHTMLToDocxElements(processedFooter);
           section.footers = {
             default: new docx.Footer({
-              children: await this.convertContent(
-                footer.replace('{{page}}', (i + 1).toString())
-                     .replace('{{total}}', pages.length.toString()),
-                true
-              )
+              children: footerElements
             })
           };
         }
 
         sections.push(section);
-        logger.info(`Created section ${i + 1} of ${pages.length}`);
       }
-
-      logger.info(`Created ${sections.length} sections, creating document...`);
 
       // Create document with sections
       const doc = {
@@ -112,17 +112,11 @@ class DOCXService {
       };
 
       // Add watermark if provided
-      if (watermark?.type === 'text' && watermark?.content) {
-        logger.info(`Adding watermark to document with ${sections.length} sections`);
-        try {
-          await watermarkService.addWatermarkToDOCX(doc, watermark);
-          logger.info('Watermark added successfully');
-        } catch (watermarkError) {
-          logger.error('Failed to add watermark:', watermarkError);
-        }
+      if (watermark) {
+        await watermarkService.addWatermarkToDOCX(doc, watermark);
       }
 
-      // Create final document after watermark
+      // Create final document
       const finalDoc = new docx.Document(doc);
 
       const outputPath = path.join(this.tempDir, `${requestId}.docx`);
@@ -136,6 +130,79 @@ class DOCXService {
       logger.error(`DOCX generation failed for request ${requestId}:`, error);
       throw error;
     }
+  }
+
+  async convertHTMLToDocxElements(html) {
+    try {
+      // Convert HTML to paragraphs and other docx elements
+      const elements = [];
+      
+      // Split content into blocks
+      const blocks = html.split(/(?=<(?:p|h[1-6]|ul|ol|table|div)[^>]*>)/);
+      
+      for (const block of blocks) {
+        if (!block.trim()) continue;
+
+        if (block.startsWith('<h')) {
+          // Handle headings
+          const level = parseInt(block.match(/<h([1-6])/)?.[1] || '1');
+          elements.push(new docx.Paragraph({
+            children: [new docx.TextRun({
+              text: this.cleanHtml(block),
+              size: 32 - (level * 2),
+              bold: true
+            })],
+            spacing: { before: 240, after: 120 }
+          }));
+        } else if (block.startsWith('<p')) {
+          // Handle paragraphs
+          elements.push(new docx.Paragraph({
+            children: [new docx.TextRun({
+              text: this.cleanHtml(block),
+              size: 24
+            })],
+            spacing: { before: 120, after: 120 }
+          }));
+        } else if (block.startsWith('<table')) {
+          // Handle tables
+          const tableRows = this.parseTableHtml(block);
+          elements.push(new docx.Table({
+            rows: tableRows
+          }));
+        }
+        // Add more handlers for other HTML elements as needed
+      }
+
+      return elements;
+    } catch (error) {
+      logger.error('Error converting HTML to DOCX elements:', error);
+      // Fallback to simple text conversion
+      return [new docx.Paragraph({
+        children: [new docx.TextRun({
+          text: this.cleanHtml(html),
+          size: 24
+        })]
+      })];
+    }
+  }
+
+  parseTableHtml(tableHtml) {
+    const rows = tableHtml.match(/<tr[^>]*>(.*?)<\/tr>/gs) || [];
+    return rows.map(row => {
+      const cells = row.match(/<t[dh][^>]*>(.*?)<\/t[dh]>/gs) || [];
+      return new docx.TableRow({
+        children: cells.map(cell => {
+          return new docx.TableCell({
+            children: [new docx.Paragraph({
+              children: [new docx.TextRun({
+                text: this.cleanHtml(cell),
+                size: 24
+              })]
+            })]
+          });
+        })
+      });
+    });
   }
 
   /**
