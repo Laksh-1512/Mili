@@ -4,10 +4,9 @@
  * @description Handles DOCX document generation with support for headers, footers, and watermarks
  */
 
-const docx = require('docx');
+const HTMLtoDOCX = require('html-to-docx');
 const path = require('path');
 const fs = require('fs').promises;
-const axios = require('axios');
 const { logger } = require('../config/logger');
 const watermarkService = require('./watermarkService');
 
@@ -37,97 +36,79 @@ class DOCXService {
    * @param {string} params.footer - HTML content for footer
    * @param {string} params.requestId - Unique request identifier
    * @param {Object} [params.watermark] - Optional watermark configuration
-   * @param {string} params.watermark.type - Type of watermark ('text' or 'image')
-   * @param {string} params.watermark.content - Watermark content (text or base64 image)
    * @returns {Promise<Object>} Generated DOCX file information
    * @throws {Error} If DOCX generation fails
    */
   async generateDOCX({ header, content, footer, requestId, watermark }) {
     try {
       logger.info(`Starting DOCX generation for request ${requestId}`);
-      
-      const pages = this.splitContentIntoPages(content);
-      logger.info(`Creating document with ${pages.length} pages`);
 
-      // Create sections array
-      const sections = [];
+      // Clean and process the content
+      const cleanContent = this.sanitizeContent(content);
+      const pages = cleanContent
+        .split(/<div[^>]*class=["']page-break["'][^>]*>/g)
+        .map(page => page.trim())
+        .filter(page => page.length > 0);
+      const processedContent = this.processContent(pages.join('<div style="page-break-after: always;"></div>'));
 
-      // Create sections one by one
-      for (let i = 0; i < pages.length; i++) {
-        const pageContent = pages[i];
-        
-        // Create section content first
-        const children = await this.convertContent(pageContent);
+      // Process header and footer
+      const headerHtml = header ? this.wrapHeaderFooter(this.sanitizeContent(header), 'header') : '';
+      const footerHtml = footer ? this.wrapHeaderFooter(this.sanitizeContent(footer), 'footer') : '';
 
-        // Create section
-        const section = {
-          properties: {
-            page: {
-              margin: {
-                top: 1440,
-                bottom: 1440,
-                left: 1440,
-                right: 1440
-              }
-            },
-            type: i > 0 ? docx.SectionType.NEXT_PAGE : docx.SectionType.CONTINUOUS
-          },
-          children: children
-        };
-
-        // Add headers if present
-        if (header) {
-          section.headers = {
-            default: new docx.Header({
-              children: await this.convertContent(header, true)
-            })
-          };
-        }
-
-        // Add footers if present
-        if (footer) {
-          section.footers = {
-            default: new docx.Footer({
-              children: await this.convertContent(
-                footer.replace('{{page}}', (i + 1).toString())
-                     .replace('{{total}}', pages.length.toString()),
-                true
-              )
-            })
-          };
-        }
-
-        sections.push(section);
-        logger.info(`Created section ${i + 1} of ${pages.length}`);
-      }
-
-      logger.info(`Created ${sections.length} sections, creating document...`);
-
-      // Create document with sections
-      const doc = {
-        sections: sections,
-        background: {
-          color: "FFFFFF"
-        }
+      const options = {
+        orientation: 'portrait',
+        pageSize: {
+          width: 12240, // Letter width in TWIP
+          height: 15840, // Letter height in TWIP
+        },
+        margins: {
+          top: 1440,    // 1 inch in TWIP
+          right: 1440,
+          bottom: 1440,
+          left: 1440,
+          header: 720,  // 0.5 inch in TWIP
+          footer: 720,
+          gutter: 0
+        },
+        title: `Document-${requestId}`,
+        subject: 'Generated Document',
+        creator: 'DOCXService',
+        keywords: ['generated', 'document'],
+        description: 'Automatically generated document',
+        lastModifiedBy: 'DOCXService',
+        revision: 1,
+        createdAt: new Date(),
+        modifiedAt: new Date(),
+        headerType: 'default',
+        header: !!headerHtml, // Enable header if headerHtml exists
+        footer: !!footerHtml, // Enable footer if footerHtml exists
+        styles: this.getEnhancedStyles(),
+        cssStyleSheet: this.getCustomCSS(),
+        table: {
+          row: {
+            cantSplit: true
+          }
+        },
+        preserveStyleTags: true
       };
 
-      // Add watermark if provided
-      if (watermark?.type === 'text' && watermark?.content) {
-        logger.info(`Adding watermark to document with ${sections.length} sections`);
-        try {
-          await watermarkService.addWatermarkToDOCX(doc, watermark);
-          logger.info('Watermark added successfully');
-        } catch (watermarkError) {
-          logger.error('Failed to add watermark:', watermarkError);
-        }
-      }
-
-      // Create final document after watermark
-      const finalDoc = new docx.Document(doc);
+      // Generate DOCX with proper header and footer
+      const buffer = await HTMLtoDOCX(
+        processedContent,    // Main content
+        headerHtml,         // Header content
+        options,            // Options
+        footerHtml         // Footer content
+      );
 
       const outputPath = path.join(this.tempDir, `${requestId}.docx`);
-      const buffer = await docx.Packer.toBuffer(finalDoc);
       await fs.writeFile(outputPath, buffer);
+      if (watermark) {
+        const docWithWatermark = await watermarkService.addWatermarkToDOCX(
+          outputPath,
+          watermark
+        );
+        await fs.writeFile(outputPath, docWithWatermark);
+      }
 
       logger.info(`DOCX file generated successfully at ${outputPath}`);
       return { path: outputPath };
@@ -139,249 +120,179 @@ class DOCXService {
   }
 
   /**
-   * Splits content into multiple pages
+   * Sanitize HTML content to prevent formatting issues
    * @private
-   * @param {string} content - HTML content to split
-   * @returns {Array<string>} Array of page contents
    */
-  splitContentIntoPages(content) {
-    // Split content at page-break divs
+  sanitizeContent(content) {
+    if (!content) return '';
+    
     return content
-      .split(/<div[^>]*class=["']page-break["'][^>]*>/g)
-      .map(page => page.trim())
-      .filter(page => page.length > 0);
-  }
-
-  /**
-   * Converts HTML content to DOCX elements, including images
-   * @private
-   * @param {string} html - HTML content to convert
-   * @param {boolean} [isHeaderFooter=false] - Whether this content is for header/footer
-   * @returns {Promise<Array<docx.Paragraph|docx.Table|docx.ImageRun>>}
-   */
-  async convertContent(html, isHeaderFooter = false) {
-    if (!html) return [];
-    
-    const elements = [];
-    const blocks = html.split(/(?=<(?:p|table|ul|ol|h[1-6]|img)[^>]*>)/);
-    
-    for (const block of blocks) {
-      if (!block.trim()) continue;
-
-      try {
-        if (block.startsWith('<img')) {
-          const imgElement = await this.convertImage(block, isHeaderFooter);
-          if (imgElement) elements.push(imgElement);
-        } else if (block.startsWith('<table')) {
-          elements.push(await this.convertTable(block));
-        } else if (block.includes('<img')) {
-          // Handle inline images within text
-          elements.push(await this.convertMixedContent(block, isHeaderFooter));
-        } else {
-          elements.push(this.convertParagraph(block, isHeaderFooter));
-        }
-      } catch (error) {
-        logger.error(`Error converting block: ${block}`, error);
-        // Fallback to text conversion if image processing fails
-        elements.push(this.convertParagraph(block, isHeaderFooter));
-      }
-    }
-    
-    return elements;
-  }
-
-  /**
-   * Converts an image tag to DOCX image
-   * @private
-   * @param {string} html - HTML image tag
-   * @param {boolean} isHeaderFooter - Whether this image is for header/footer
-   */
-  async convertImage(html, isHeaderFooter = false) {
-    const srcMatch = html.match(/src=["'](.*?)["']/);
-    if (!srcMatch) return null;
-
-    const src = srcMatch[1];
-    const imageBuffer = await this.getImageBuffer(src);
-
-    // Get dimensions from HTML or use defaults
-    const widthMatch = html.match(/width=["'](\d+)["']/);
-    const heightMatch = html.match(/height=["'](\d+)["']/);
-
-    // Use wider dimensions for footer images
-    const defaultWidth = isHeaderFooter ? 550 : 400;  // Increased from 100 to 550
-    const defaultHeight = isHeaderFooter ? 80 : 300;  // Adjusted height for proportion
-
-    return new docx.Paragraph({
-      children: [
-        new docx.ImageRun({
-          data: imageBuffer,
-          transformation: {
-            width: widthMatch ? parseInt(widthMatch[1]) : defaultWidth,
-            height: heightMatch ? parseInt(heightMatch[1]) : defaultHeight
-          }
-        })
-      ],
-      alignment: docx.AlignmentType.CENTER
-    });
-  }
-
-  /**
-   * Converts mixed content (text with inline images) to DOCX elements
-   * @private
-   */
-  async convertMixedContent(html, isHeaderFooter = false) {
-    const children = [];
-    const parts = html.split(/(<img[^>]*>)/);
-
-    for (const part of parts) {
-      if (part.startsWith('<img')) {
-        try {
-          const srcMatch = part.match(/src=["'](.*?)["']/);
-          if (srcMatch) {
-            const imageBuffer = await this.getImageBuffer(srcMatch[1]);
-            children.push(
-              new docx.ImageRun({
-                data: imageBuffer,
-                transformation: {
-                  width: isHeaderFooter ? 550 : 400,  // Increased from 400 to 550
-                  height: isHeaderFooter ? 80 : 300   // Adjusted height for proportion
-                }
-              })
-            );
-          }
-        } catch (error) {
-          logger.error('Error processing inline image:', error);
-        }
-      } else if (part.trim()) {
-        children.push(
-          new docx.TextRun({
-            text: this.cleanHtml(part),
-            size: isHeaderFooter ? 20 : 24
-          })
-        );
-      }
-    }
-
-    return new docx.Paragraph({
-      children,
-      alignment: isHeaderFooter ? docx.AlignmentType.CENTER : docx.AlignmentType.LEFT
-    });
-  }
-
-  /**
-   * Gets image buffer from URL or base64
-   * @private
-   */
-  async getImageBuffer(src) {
-    try {
-      if (src.startsWith('data:image')) {
-        const base64Data = src.split(',')[1];
-        return Buffer.from(base64Data, 'base64');
-      } else {
-        const response = await axios.get(src, {
-          responseType: 'arraybuffer'
-        });
-        return Buffer.from(response.data);
-      }
-    } catch (error) {
-      logger.error('Error downloading image:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Converts HTML table to DOCX table
-   * @private
-   * @param {string} html - HTML table content
-   * @returns {docx.Table} DOCX table object
-   */
-  convertTable(html) {
-    try {
-      const rows = html.match(/<tr[^>]*>(.*?)<\/tr>/gs) || [];
-      
-      return new docx.Table({
-        rows: rows.map(row => {
-          const cells = row.match(/<t[dh][^>]*>(.*?)<\/t[dh]>/gs) || [];
-          return new docx.TableRow({
-            children: cells.map(cell => {
-              return new docx.TableCell({
-                children: [this.convertParagraph(cell)]
-              });
-            })
-          });
-        })
-      });
-    } catch (error) {
-      logger.error('Error converting table:', error);
-      return this.convertParagraph(html);
-    }
-  }
-
-  /**
-   * Converts HTML list to DOCX paragraphs
-   * @private
-   * @param {string} html - HTML list content
-   * @returns {Array<docx.Paragraph>} Array of DOCX paragraphs
-   */
-  convertList(html) {
-    try {
-      const items = html.match(/<li[^>]*>(.*?)<\/li>/gs) || [];
-      return items.map((item, index) => {
-        return new docx.Paragraph({
-          children: [
-            new docx.TextRun({
-              text: this.cleanHtml(item)
-            })
-          ],
-          bullet: {
-            level: 0
-          }
-        });
-      });
-    } catch (error) {
-      logger.error('Error converting list:', error);
-      return [this.convertParagraph(html)];
-    }
-  }
-
-  convertHeading(html) {
-    const level = parseInt(html.match(/<h([1-6])/)?.[1] || '1');
-    return new docx.Paragraph({
-      children: [
-        new docx.TextRun({
-          text: this.cleanHtml(html),
-          bold: true,
-          size: 32 - (level * 2)
-        })
-      ],
-      spacing: {
-        before: 240,
-        after: 120
-      }
-    });
-  }
-
-  convertParagraph(html, isHeaderFooter = false) {
-    return new docx.Paragraph({
-      children: [
-        new docx.TextRun({
-          text: this.cleanHtml(html),
-          size: isHeaderFooter ? 20 : 24
-        })
-      ],
-      spacing: {
-        before: 120,
-        after: 120
-      },
-      alignment: isHeaderFooter ? docx.AlignmentType.CENTER : docx.AlignmentType.LEFT
-    });
-  }
-
-  cleanHtml(html) {
-    return html
-      .replace(/<[^>]*>/g, '')
-      .replace(/&nbsp;/g, ' ')
+      // Remove potentially problematic characters
+      .replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F]/g, '')
+      // Normalize quotation marks
+      .replace(/[""]/g, '"')
+      .replace(/['']/g, "'")
+      // Ensure proper closing of tags
+      .replace(/<(br|hr)>/gi, '<$1 />')
+      // Normalize spaces
+      .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  /**
+   * Process content to enhance style handling
+   * @private
+   */
+  processContent(content) {
+    // Add style preservation wrapper
+    return `
+      <div class="document-content">
+        ${this.enhanceListStyles(content)}
+      </div>
+    `;
+  }
+
+  /**
+   * Enhance list styles to ensure proper nesting and styling
+   * @private
+   */
+  enhanceListStyles(content) {
+    return content.replace(
+      /(<[uo]l[^>]*>)([\s\S]*?)(<\/[uo]l>)/g,
+      (match, openTag, listContent, closeTag) => {
+        const styleMatch = openTag.match(/style=["'](.*?)["']/);
+        const existingStyles = styleMatch ? styleMatch[1] : '';
+        
+        const enhancedOpenTag = openTag.replace(
+          '>',
+          ` style="${existingStyles}; margin-left: 40px; padding-left: 0; list-style-position: outside;">`
+        );
+
+        const enhancedContent = listContent.replace(
+          /(<li[^>]*)(>)([\s\S]*?)(<\/li>)/g,
+          (liMatch, liOpen, liClose, liContent, liEnd) => {
+            const liStyleMatch = liOpen.match(/style=["'](.*?)["']/);
+            const liStyles = liStyleMatch ? liStyleMatch[1] : '';
+            return `${liOpen} style="${liStyles}; display: list-item; margin-bottom: 8px;"${liClose}${liContent}${liEnd}`;
+          }
+        );
+
+        return `${enhancedOpenTag}${enhancedContent}${closeTag}`;
+      }
+    );
+  }
+
+  /**
+   * Get enhanced styles configuration
+   * @private
+   */
+  getEnhancedStyles() {
+    return {
+      paragraphStyles: {
+        normal: {
+          spacing: { before: 120, after: 120, line: 240 },
+          run: { size: 22 }
+        },
+        heading1: {
+          run: { size: 48, bold: true },
+          spacing: { before: 240, after: 120 },
+        },
+        heading2: {
+          run: { size: 36, bold: true },
+          spacing: { before: 240, after: 120 },
+        }
+      },
+      characterStyles: {
+        default: {
+          size: 22,
+          font: 'Arial'
+        }
+      },
+      styleMap: {
+        'h1': 'heading1',
+        'h2': 'heading2',
+        'p': 'normal',
+        'ul': { indentation: { left: 720 } },
+        'ol': { indentation: { left: 720 } },
+        'li': { indentation: { hanging: 360 } },
+        'strong': { bold: true },
+        'b': { bold: true },
+        'em': { italic: true },
+        'i': { italic: true },
+        'u': { underline: true },
+        'a': { color: '0563C1', underline: true },
+        'table': {
+          preferredWidth: 100,
+          preferredWidthType: 'pct',
+        }
+      }
+    };
+  }
+
+  /**
+   * Get custom CSS for enhanced styling
+   * @private
+   */
+  getCustomCSS() {
+    return `
+      .document-content { 
+        font-family: Arial; 
+        font-size: 11pt; 
+        line-height: 1.15;
+      }
+      ul, ol { 
+        margin-left: 40px; 
+        padding-left: 0;
+        list-style-position: outside;
+      }
+      li { 
+        display: list-item;
+        margin-bottom: 8px;
+      }
+      table { 
+        width: 100%; 
+        border-collapse: collapse;
+        margin: 10px 0;
+      }
+      td, th { 
+        border: 1px solid #000; 
+        padding: 8px;
+        vertical-align: top;
+      }
+      strong, b { font-weight: bold; }
+      em, i { font-style: italic; }
+      u { text-decoration: underline; }
+      p { margin: 0; padding: 0; }
+    `;
+  }
+
+  /**
+   * Wraps header/footer content with proper styling
+   * @private
+   */
+  wrapHeaderFooter(content, type) {
+    if (!content) return '';
+
+    let processedContent = content;
+    if (type === 'footer') {
+      processedContent = content
+        .replace('{{page}}', '{{pageNumber}}')
+        .replace('{{total}}', '{{totalPages}}');
+    }
+
+    return `
+      <div style="
+        width: 100%;
+        text-align: center;
+        font-size: 10pt;
+        font-family: Arial;
+        margin: 0;
+        padding: ${type === 'header' ? '12pt' : '12pt'} 0;
+        line-height: 1.2;
+      ">
+        ${processedContent}
+      </div>
+    `;
   }
 }
 
